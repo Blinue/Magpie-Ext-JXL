@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <!-- 不要直接修改这些选项，应通过 BuildOptions.props.user 或命令行参数覆盖 -->
+  <PropertyGroup>
+    <!-- 使用 clang-cl 编译 -->
+    <UseClangCL>false</UseClangCL>
+    <!-- 针对特定处理器架构生成优化代码，只在使用 clang-cl 编译时有效。常用值有 native 和 x86-64-v3 -->
+    <ClangTargetMicroArch></ClangTargetMicroArch>
+    <!-- 禁止生成 PDB -->
+    <DisablePDB>false</DisablePDB>
+    <!-- 执行静态代码分析 -->
+    <RunCodeAnalysis>false</RunCodeAnalysis>
+    <!-- 使 Microsoft C++ Code Analysis 生成 SARIF，这会阻止输出到命令行 -->
+    <PREFastSarif>false</PREFastSarif>
+	
+    <OutBaseDir></OutBaseDir>
+  </PropertyGroup>
+  
+  <!-- 用户自定义编译选项 -->
+  <Import Project="$(MSBuildThisFileDirectory)\BuildOptions.props.user" Condition="'$(DisableUserBuildOptions)' != 'true' And Exists('$(MSBuildThisFileDirectory)\BuildOptions.props.user')" />
+</Project>

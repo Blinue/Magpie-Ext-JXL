@@ -1,0 +1,15 @@
+<Solution>
+  <Configurations>
+    <Platform Name="ARM64" />
+    <Platform Name="x64" />
+  </Configurations>
+  <Folder Name="/Solution Items/">
+    <File Path="src/BuildOptions.props" />
+    <File Path="src/Common.Pre.props" />
+    <File Path="src/HybridCRT.props" />
+  </Folder>
+  <Project Path="src/MagpieExtJXL/MagpieExtJXL.vcxproj" Id="4fa6c9e1-6ee8-4ec7-83f4-3c65e91556df"  DefaultStartup="true">
+    <BuildDependency Project="src/_ConanDeps/_ConanDeps.vcxproj" />
+  </Project>
+  <Project Path="src/_ConanDeps/_ConanDeps.vcxproj" Id="456ccae4-2c51-4cf2-8d3a-1efce8c41a2d" />
+</Solution>
