@@ -112,17 +112,20 @@ ConanFile = conanFiles.ToArray();
       <_BuildArch Condition="'$([System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture)' == 'X64'">x86_64</_BuildArch>
       <_BuildArch Condition="'$(_BuildArch)' == ''">armv8</_BuildArch>
       <!-- 目前的依赖都不使用 RTTI -->
-      <_AdditionalFlags>'/GR-'</_AdditionalFlags>
-      <_AdditionalFlags Condition="$(UseClangCL) And '$(Configuration)' == 'Release'">$(_AdditionalFlags),'/clang:-flto'</_AdditionalFlags>
-      <_AdditionalFlags Condition="$(UseClangCL) And '$(Platform)' == 'x64'">$(_AdditionalFlags),'/clang:-mcx16'</_AdditionalFlags>
-      <_AdditionalFlags Condition="$(UseClangCL) And '$(ClangTargetMicroArch)' != ''">$(_AdditionalFlags),'/clang:-march=$(ClangTargetMicroArch)'</_AdditionalFlags>
-      <_AdditionalFlags Condition="!$(UseClangCL) And '$(Configuration)' == 'Release'">$(_AdditionalFlags),'/GL'</_AdditionalFlags>
-      <_AdditionalOptions Condition="'$(_AdditionalFlags)' != ''">-c tools.build:cxxflags=[$(_AdditionalFlags)] -c tools.build:cflags=[$(_AdditionalFlags)]</_AdditionalOptions>
+      <_MSVCAdditionalFlags>'/GR-'</_MSVCAdditionalFlags>
+      <_MSVCAdditionalFlags Condition="'$(Configuration)' == 'Release'">$(_MSVCAdditionalFlags),'/GL'</_MSVCAdditionalFlags>
+      <_ClangCLAdditionalFlags>'/GR-'</_ClangCLAdditionalFlags>
+      <_ClangCLAdditionalFlags Condition="'$(Configuration)' == 'Release'">$(_MSVCAdditionalFlags),'/clang:-flto'</_ClangCLAdditionalFlags>
+      <_ClangCLAdditionalFlags Condition="'$(Platform)' == 'x64'">$(_MSVCAdditionalFlags),'/clang:-mcx16'</_ClangCLAdditionalFlags>
+      <_ClangCLAdditionalFlags Condition="'$(ClangTargetMicroArch)' != ''">$(_MSVCAdditionalFlags),'/clang:-march=$(ClangTargetMicroArch)'</_ClangCLAdditionalFlags>
+      <_AdditionalOptions Condition="$(UseClangCL)">-c:h tools.build:cxxflags=[$(_ClangCLAdditionalFlags)] -c:h tools.build:cflags=[$(_ClangCLAdditionalFlags)]</_AdditionalOptions>
+      <_AdditionalOptions Condition="!$(UseClangCL)">-c:h tools.build:cxxflags=[$(_MSVCAdditionalFlags)] -c:h tools.build:cflags=[$(_MSVCAdditionalFlags)]</_AdditionalOptions>
       <!-- 传入 MSBuild 版本使得 VS 更新后触发重新编译。MSBuild 的更新频率比编译器慢，但够用了 -->
       <_AdditionalOptions>-c user.magpie:msbuild_version=$(MSBuildVersion) $(_AdditionalOptions)</_AdditionalOptions>
+      <_AdditionalOptions Condition="$(UseClangCL)">-c:h lcms/*:tools.build:cxxflags=['/GR-'] -c:h lcms/*:tools.build:cflags=['/GR-'] -s:h lcms/*:compiler.runtime_type=$(Configuration) $(_AdditionalOptions)</_AdditionalOptions>
     </PropertyGroup>
     <!-- 批量处理 _ConanFile 中的元素 -->
-    <Exec Condition="'@(_ConanFile)' != ''" Command="conan install &quot;%(_ConanFile.FullPath)&quot; -pr:h=$(_HostProfileName) -pr:b=build.profile --output-folder &quot;$(IntDir)%(_ConanFile.ProjectName)&quot; -s build_type=$(Configuration) -s:h arch=$(_HostArch) -s:b arch=$(_BuildArch) $(_AdditionalOptions) --build=missing --update" />
+    <Exec Condition="'@(_ConanFile)' != ''" Command="conan install &quot;%(_ConanFile.FullPath)&quot; -pr:h=$(_HostProfileName) -pr:b=build.profile --output-folder &quot;$(IntDir)%(_ConanFile.ProjectName)&quot; -s:h build_type=$(Configuration) -s:h compiler.runtime_type=$(Configuration) -s:h arch=$(_HostArch) -s:b arch=$(_BuildArch) $(_AdditionalOptions) --build=missing --update" />
     <!-- 清理 -->
     <ItemGroup>
       <_ProfileFile Remove="@(_ProfileFile)" />

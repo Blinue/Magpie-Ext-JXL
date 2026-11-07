@@ -10,4 +10,7 @@
   <ItemGroup>
     <ClInclude Include="pch.h" />
   </ItemGroup>
+  <ItemGroup>
+    <Text Include="conanfile.txt" />
+  </ItemGroup>
 </Project>
