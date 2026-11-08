@@ -67,7 +67,7 @@ static bool LoadFromFile(
 
 	
 	ComPtr<IWICBitmapSource> source;
-	if (sourceWicFormat == GUID_WICPixelFormat64bppRGBAHalf) {
+	if (sourceWicFormat == GUID_WICPixelFormat48bppRGB) {
 		source = std::move(frame);
 	} else {
 		// 转换格式
@@ -77,7 +77,7 @@ static bool LoadFromFile(
 			return false;
 		}
 
-		hr = formatConverter->Initialize(frame.Get(), GUID_WICPixelFormat64bppRGBAHalf,
+		hr = formatConverter->Initialize(frame.Get(), GUID_WICPixelFormat48bppRGB,
 			WICBitmapDitherTypeNone, nullptr, 0, WICBitmapPaletteTypeCustom);
 		if (FAILED(hr)) {
 			return false;
@@ -88,7 +88,7 @@ static bool LoadFromFile(
 
 	source->GetSize(&width, &height);
 
-	uint32_t stride = width * 8;
+	uint32_t stride = width * 6;
 	uint32_t size = stride * height;
 	pixels.resize(size);
 	hr = source->CopyPixels(nullptr, stride, size, pixels.data());
@@ -108,8 +108,12 @@ static bool LoadFromFile(
  * @param ysize height of the input image
  * @param compressed will be populated with the compressed bytes
  */
-bool EncodeJxlOneshot(const std::vector<uint8_t>& pixels, const uint32_t xsize,
-	const uint32_t ysize, std::vector<uint8_t>* compressed) {
+bool EncodeJxlOneshot(
+	const std::vector<uint8_t>& pixels,
+	const uint32_t xsize,
+	const uint32_t ysize,
+	std::vector<uint8_t>* compressed
+) {
 	JxlEncoderPtr enc = JxlEncoderMake(/*memory_manager=*/nullptr);
 	JxlThreadParallelRunnerPtr runner = JxlThreadParallelRunnerMake(
 		/*memory_manager=*/nullptr,
@@ -126,9 +130,9 @@ bool EncodeJxlOneshot(const std::vector<uint8_t>& pixels, const uint32_t xsize,
 	basic_info.xsize = xsize;
 	basic_info.ysize = ysize;
 	basic_info.bits_per_sample = 16;
-	basic_info.exponent_bits_per_sample = 5;
-	basic_info.num_extra_channels = 1;
-	basic_info.alpha_bits = 16;
+	basic_info.exponent_bits_per_sample = 0;
+	basic_info.num_extra_channels = 0;
+	basic_info.alpha_bits = 0;
 	basic_info.uses_original_profile = JXL_FALSE;
 	if (JXL_ENC_SUCCESS != JxlEncoderSetBasicInfo(enc.get(), &basic_info)) {
 		fprintf(stderr, "JxlEncoderSetBasicInfo failed\n");
@@ -136,7 +140,7 @@ bool EncodeJxlOneshot(const std::vector<uint8_t>& pixels, const uint32_t xsize,
 	}
 
 	JxlColorEncoding color_encoding = {};
-	JxlColorEncodingSetToLinearSRGB(&color_encoding, false);
+	JxlColorEncodingSetToSRGB(&color_encoding, false);
 	if (JXL_ENC_SUCCESS !=
 		JxlEncoderSetColorEncoding(enc.get(), &color_encoding)) {
 		fprintf(stderr, "JxlEncoderSetColorEncoding failed\n");
@@ -150,7 +154,9 @@ bool EncodeJxlOneshot(const std::vector<uint8_t>& pixels, const uint32_t xsize,
 		return false;
 	}
 
-	JxlPixelFormat pixel_format = { 4, JXL_TYPE_FLOAT16, JXL_NATIVE_ENDIAN, 0 };
+	JxlEncoderSetFrameLossless(frame_settings, JXL_TRUE);
+
+	JxlPixelFormat pixel_format = { 3, JXL_TYPE_UINT16, JXL_NATIVE_ENDIAN, 0 };
 	auto s = JxlEncoderAddImageFrame(frame_settings, &pixel_format,
 		static_cast<const void*>(pixels.data()),
 		pixels.size());
