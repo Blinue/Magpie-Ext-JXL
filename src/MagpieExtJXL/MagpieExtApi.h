@@ -91,6 +91,11 @@ struct MagpieImageEncoderDesc {
 	const MagpieImageEncoderOptionDesc* optionDescs;
 	uint32_t optionCount;
 
+	// 像素格式始终是 R16G16B16_UINT16，但不同的色彩模式下颜色编码不同。
+	// SDR - 色域: sRGB    传递函数: sRGB
+	// WCG - 色域: BT.2100 传递函数: 伽马 2.4
+	// HDR - 色域: BT.2100 传递函数: PQ
+	// 白点始终是 D65。
 	HRESULT (*encode)(
 		const MagpieOptionValue* optionValues,
 		uint32_t optionValueCount,

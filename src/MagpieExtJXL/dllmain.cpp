@@ -12,7 +12,18 @@
 
 using namespace MagpieExtJXL;
 
-MagpieHostApi* HostApi;
+static const char* IMAGE_QUALITY_OPTION_ID = "imageQuality";
+static constexpr float IMAGE_QUALITY_DEFAULT_VALUE = 1.0f;
+
+template <typename T>
+constexpr inline T FLOAT_EPSILON = std::numeric_limits<T>::epsilon() * 100;
+
+// 不支持 nan 和无穷大
+template <typename T>
+static bool IsApprox(T l, T r) noexcept {
+	static_assert(std::is_floating_point_v<T>, "T 必须是浮点数类型");
+	return std::abs(l - r) < FLOAT_EPSILON<T>;
+}
 
 static bool WriteFile(HANDLE hFile, std::span<const uint8_t> data) noexcept {
 	DWORD written;
@@ -30,8 +41,8 @@ static bool WriteFile(HANDLE hFile, std::span<const uint8_t> data) noexcept {
 }
 
 static HRESULT EncodeJxl(
-	const MagpieOptionValue* /*optionValues*/,
-	uint32_t /*optionValueCount*/,
+	const MagpieOptionValue* optionValues,
+	uint32_t optionValueCount,
 	const char* fileName,
 	uint32_t imageWidth,
 	uint32_t imageHeight,
@@ -66,6 +77,9 @@ static HRESULT EncodeJxl(
 
 	JxlColorEncoding colorEncoding = {};
 
+	// SDR - 色域: sRGB    传递函数: sRGB
+	// WCG - 色域: BT.2100 传递函数: 伽马 2.4
+	// HDR - 色域: BT.2100 传递函数: PQ
 	if (colorKind == MagpieColorKindSDR) {
 		JxlColorEncodingSetToSRGB(&colorEncoding, JXL_FALSE);
 	} else {
@@ -94,12 +108,32 @@ static HRESULT EncodeJxl(
 		return E_FAIL;
 	}
 
-	status = JxlEncoderSetFrameLossless(frameSettings, JXL_TRUE);
-	if (status != JXL_ENC_SUCCESS) {
-		Logger::Get().Error("JxlEncoderSetFrameLossless 失败");
-		return E_FAIL;
+	float imageQuality = IMAGE_QUALITY_DEFAULT_VALUE;
+	for (uint32_t i = 0; i < optionValueCount; ++i) {
+		if (optionValues[i].id == IMAGE_QUALITY_OPTION_ID) {
+			imageQuality = optionValues[i].floatValue;
+			break;
+		}
 	}
 
+	if (IsApprox(imageQuality, 1.0f)) {
+		// 无损压缩
+		status = JxlEncoderSetFrameLossless(frameSettings, JXL_TRUE);
+		if (status != JXL_ENC_SUCCESS) {
+			Logger::Get().Error("JxlEncoderSetFrameLossless 失败");
+			return E_FAIL;
+		}
+	} else {
+		// imageQuality 0.0 -> distance 3.0
+		// imageQuality 1.0 -> distance 0.0
+		float distance = (1.0f - imageQuality) * 3.0f;
+		status = JxlEncoderSetFrameDistance(frameSettings, distance);
+		if (status != JXL_ENC_SUCCESS) {
+			Logger::Get().Error("JxlEncoderSetFrameDistance 失败");
+			return E_FAIL;
+		}
+	}
+	
 	JxlPixelFormat pixelFormat = { 3, JXL_TYPE_UINT16, JXL_NATIVE_ENDIAN, rowPitch };
 	status = JxlEncoderAddImageFrame(
 		frameSettings,
@@ -157,15 +191,27 @@ static HRESULT EncodeJxl(
 }
 
 static void MagpieExtEntryImpl(MagpieHostApi* hostApi) {
-	HostApi = hostApi;
-
 	Logger::Get().Initialize(hostApi);
+
+	MagpieImageEncoderOptionDesc imageQualityOptionDesc = {
+		.id = IMAGE_QUALITY_OPTION_ID,
+		.displayName = "Image Quality",
+		.type = MagpieOptionTypeFloat,
+		.floatOption = {
+			.defaultValue = IMAGE_QUALITY_DEFAULT_VALUE,
+			.minValue = 0.0f,
+			.maxValue = 1.0f,
+			.step = 0.01f
+		}
+	};
 
 	MagpieImageEncoderDesc imageEncoderDesc = {
 		.id = "jxl",
 		.displayName = "JXL",
 		.description = "JXL 是新一代图像格式",
 		.fileExtension = "jxl",
+		.optionDescs = &imageQualityOptionDesc,
+		.optionCount = 1,
 		.encode = &EncodeJxl
 	};
 
