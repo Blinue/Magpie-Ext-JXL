@@ -1,4 +1,7 @@
 #include "pch.h"
+#include "MagpieExtApi.h"
+#include "Logger.h"
+#include "StrHelper.h"
 #include <jxl/codestream_header.h>
 #include <jxl/color_encoding.h>
 #include <jxl/encode.h>
@@ -6,233 +9,162 @@
 #include <jxl/thread_parallel_runner.h>
 #include <jxl/thread_parallel_runner_cxx.h>
 #include <jxl/types.h>
-#include <sstream>
-#include <wrl/client.h>
-#include <wincodec.h>
-#include <fmt/printf.h>
 
-using Microsoft::WRL::ComPtr;
+using namespace MagpieExtJXL;
 
-BOOL APIENTRY DllMain(
-	HMODULE /*hModule*/,
-	DWORD  reasonForCall,
-	LPVOID /*lpReserved*/
-) {
-	switch (reasonForCall) {
-	case DLL_PROCESS_ATTACH:
-	case DLL_THREAD_ATTACH:
-	case DLL_THREAD_DETACH:
-	case DLL_PROCESS_DETACH:
-		break;
+MagpieHostApi* HostApi;
+
+static bool WriteFile(HANDLE hFile, std::span<const uint8_t> data) noexcept {
+	DWORD written;
+	if (!::WriteFile(hFile, data.data(), (DWORD)data.size(), &written, nullptr)) {
+		Logger::Get().Win32Error("WriteFile 失败");
+		return false;
 	}
-	return TRUE;
+
+	if (written < data.size()) {
+		Logger::Get().Error("WriteFile 未写入全部数据");
+		return false;
+	}
+
+	return true;
 }
 
-static bool LoadFromFile(
-	const wchar_t* fileName,
-	uint32_t& width,
-	uint32_t& height,
-	std::vector<uint8_t>& pixels
+HRESULT EncodeJxl(
+	const MagpieOptionValue* /*optionValues*/,
+	uint32_t /*optionValueCount*/,
+	const char* fileName,
+	uint32_t imageWidth,
+	uint32_t imageHeight,
+	const uint8_t* pixelData,
+	uint64_t pixelDataSize,
+	uint32_t rowPitch
 ) noexcept {
-	ComPtr<IWICImagingFactory2> wicImgFactory;
-	HRESULT hr = CoCreateInstance(
-		CLSID_WICImagingFactory,
-		nullptr,
-		CLSCTX_INPROC_SERVER,
-		IID_PPV_ARGS(&wicImgFactory)
-	);
-	if (FAILED(hr)) {
-		return false;
-	}
-
-	// 读取图像文件
-	ComPtr<IWICBitmapDecoder> decoder;
-	hr = wicImgFactory->CreateDecoderFromFilename(
-		fileName, nullptr, GENERIC_READ, WICDecodeMetadataCacheOnDemand, decoder.GetAddressOf());
-	if (FAILED(hr)) {
-		return false;
-	}
-
-	ComPtr<IWICBitmapFrameDecode> frame;
-	hr = decoder->GetFrame(0, frame.GetAddressOf());
-	if (FAILED(hr)) {
-		return false;
-	}
-
-	WICPixelFormatGUID sourceWicFormat;
-	hr = frame->GetPixelFormat(&sourceWicFormat);
-	if (FAILED(hr)) {
-		return false;
-	}
-
-	
-	ComPtr<IWICBitmapSource> source;
-	if (sourceWicFormat == GUID_WICPixelFormat48bppRGB) {
-		source = std::move(frame);
-	} else {
-		// 转换格式
-		ComPtr<IWICFormatConverter> formatConverter;
-		hr = wicImgFactory->CreateFormatConverter(formatConverter.GetAddressOf());
-		if (FAILED(hr)) {
-			return false;
-		}
-
-		hr = formatConverter->Initialize(frame.Get(), GUID_WICPixelFormat48bppRGB,
-			WICBitmapDitherTypeNone, nullptr, 0, WICBitmapPaletteTypeCustom);
-		if (FAILED(hr)) {
-			return false;
-		}
-
-		source = std::move(formatConverter);
-	}
-
-	source->GetSize(&width, &height);
-
-	uint32_t stride = width * 6;
-	uint32_t size = stride * height;
-	pixels.resize(size);
-	hr = source->CopyPixels(nullptr, stride, size, pixels.data());
-	if (FAILED(hr)) {
-		auto e = fmt::sprintf("HRESULT: 0x%X", hr);
-		return false;
-	}
-
-	return true;
-}
-
-/**
- * Compresses the provided pixels.
- *
- * @param pixels input pixels
- * @param xsize width of the input image
- * @param ysize height of the input image
- * @param compressed will be populated with the compressed bytes
- */
-bool EncodeJxlOneshot(
-	const std::vector<uint8_t>& pixels,
-	const uint32_t xsize,
-	const uint32_t ysize,
-	std::vector<uint8_t>* compressed
-) {
-	JxlEncoderPtr enc = JxlEncoderMake(/*memory_manager=*/nullptr);
+	JxlEncoderPtr encoder = JxlEncoderMake(nullptr);
 	JxlThreadParallelRunnerPtr runner = JxlThreadParallelRunnerMake(
-		/*memory_manager=*/nullptr,
-		JxlThreadParallelRunnerDefaultNumWorkerThreads());
-	if (JXL_ENC_SUCCESS != JxlEncoderSetParallelRunner(enc.get(),
-		JxlThreadParallelRunner,
-		runner.get())) {
-		fprintf(stderr, "JxlEncoderSetParallelRunner failed\n");
-		return false;
+		nullptr, JxlThreadParallelRunnerDefaultNumWorkerThreads());
+
+	JxlEncoderStatus status =
+		JxlEncoderSetParallelRunner(encoder.get(), JxlThreadParallelRunner, runner.get());
+	if (status != JXL_ENC_SUCCESS) {
+		Logger::Get().Error("JxlEncoderSetParallelRunner 失败");
+		return E_FAIL;
 	}
 
-	JxlBasicInfo basic_info;
-	JxlEncoderInitBasicInfo(&basic_info);
-	basic_info.xsize = xsize;
-	basic_info.ysize = ysize;
-	basic_info.bits_per_sample = 16;
-	basic_info.exponent_bits_per_sample = 0;
-	basic_info.num_extra_channels = 0;
-	basic_info.alpha_bits = 0;
-	basic_info.uses_original_profile = JXL_FALSE;
-	if (JXL_ENC_SUCCESS != JxlEncoderSetBasicInfo(enc.get(), &basic_info)) {
-		fprintf(stderr, "JxlEncoderSetBasicInfo failed\n");
-		return false;
+	JxlBasicInfo basicInfo;
+	JxlEncoderInitBasicInfo(&basicInfo);
+	basicInfo.xsize = imageWidth;
+	basicInfo.ysize = imageHeight;
+	basicInfo.bits_per_sample = 16;
+	basicInfo.uses_original_profile = JXL_TRUE;
+	status = JxlEncoderSetBasicInfo(encoder.get(), &basicInfo);
+	if (status != JXL_ENC_SUCCESS) {
+		Logger::Get().Error("JxlEncoderSetBasicInfo 失败");
+		return E_FAIL;
 	}
 
-	JxlColorEncoding color_encoding = {};
-	JxlColorEncodingSetToSRGB(&color_encoding, false);
-	if (JXL_ENC_SUCCESS !=
-		JxlEncoderSetColorEncoding(enc.get(), &color_encoding)) {
-		fprintf(stderr, "JxlEncoderSetColorEncoding failed\n");
-		return false;
+	JxlColorEncoding colorEncoding = {};
+	JxlColorEncodingSetToSRGB(&colorEncoding, false);
+
+	status = JxlEncoderSetColorEncoding(encoder.get(), &colorEncoding);
+	if (status != JXL_ENC_SUCCESS) {
+		Logger::Get().Error("JxlEncoderSetColorEncoding 失败");
+		return E_FAIL;
 	}
 
-	JxlEncoderFrameSettings* frame_settings =
-		JxlEncoderFrameSettingsCreate(enc.get(), nullptr);
-	if (!frame_settings) {
-		fprintf(stderr, "JxlEncoderFrameSettingsCreate failed\n");
-		return false;
+	JxlEncoderFrameSettings* frameSettings =
+		JxlEncoderFrameSettingsCreate(encoder.get(), nullptr);
+	if (!frameSettings) {
+		Logger::Get().Error("JxlEncoderFrameSettingsCreate 失败");
+		return E_FAIL;
 	}
 
-	JxlEncoderSetFrameLossless(frame_settings, JXL_TRUE);
-
-	JxlPixelFormat pixel_format = { 3, JXL_TYPE_UINT16, JXL_NATIVE_ENDIAN, 0 };
-	auto s = JxlEncoderAddImageFrame(frame_settings, &pixel_format,
-		static_cast<const void*>(pixels.data()),
-		pixels.size());
-	if (JXL_ENC_SUCCESS != s) {
-		fprintf(stderr, "JxlEncoderAddImageFrame failed\n");
-		return false;
+	status = JxlEncoderSetFrameLossless(frameSettings, JXL_TRUE);
+	if (status != JXL_ENC_SUCCESS) {
+		Logger::Get().Error("JxlEncoderSetFrameLossless 失败");
+		return E_FAIL;
 	}
-	JxlEncoderCloseInput(enc.get());
 
-	compressed->resize(64);
-	uint8_t* next_out = compressed->data();
-	size_t avail_out = compressed->size() - (next_out - compressed->data());
-	JxlEncoderStatus process_result = JXL_ENC_NEED_MORE_OUTPUT;
-	while (process_result == JXL_ENC_NEED_MORE_OUTPUT) {
-		process_result = JxlEncoderProcessOutput(enc.get(), &next_out, &avail_out);
-		if (process_result == JXL_ENC_NEED_MORE_OUTPUT) {
-			size_t offset = next_out - compressed->data();
-			compressed->resize(compressed->size() * 2);
-			next_out = compressed->data() + offset;
-			avail_out = compressed->size() - offset;
+	JxlPixelFormat pixelFormat = { 3, JXL_TYPE_UINT16, JXL_NATIVE_ENDIAN, rowPitch };
+	status = JxlEncoderAddImageFrame(
+		frameSettings,
+		&pixelFormat,
+		pixelData,
+		pixelDataSize
+	);
+	if (status != JXL_ENC_SUCCESS) {
+		Logger::Get().Error("JxlEncoderAddImageFrame 失败");
+		return E_FAIL;
+	}
+
+	JxlEncoderCloseInput(encoder.get());
+
+	wil::unique_hfile hFile(CreateFile2(
+		StrHelper::UTF8ToUTF16(fileName).c_str(),
+		GENERIC_WRITE,
+		0,
+		CREATE_ALWAYS,
+		nullptr
+	));
+	if (!hFile) {
+		Logger::Get().Win32Error("CreateFile2 失败");
+		return E_FAIL;
+	}
+
+	std::vector<uint8_t> buffer(1024);
+	uint8_t* nextOut = buffer.data();
+	uint64_t availOut = buffer.size();
+	while (true) {
+		status = JxlEncoderProcessOutput(encoder.get(), &nextOut, &availOut);
+		if (status == JXL_ENC_SUCCESS) {
+			// 最后一次写入
+			if (nextOut != buffer.data()) {
+				WriteFile(hFile.get(), std::span(buffer.data(), nextOut - buffer.data()));
+			}
+			
+			break;
+		} else if (status != JXL_ENC_NEED_MORE_OUTPUT) {
+			Logger::Get().Error("JxlEncoderProcessOutput 失败");
+			return E_FAIL;
+		}
+
+		// 缓冲区满时写入文件
+		if (nextOut == buffer.data() + buffer.size()) {
+			WriteFile(hFile.get(), buffer);
+			// 增加缓冲区容量
+			buffer.resize(buffer.size() * 2);
+			nextOut = buffer.data();
+			availOut = buffer.size();
 		}
 	}
-	compressed->resize(next_out - compressed->data());
-	if (JXL_ENC_SUCCESS != process_result) {
-		fprintf(stderr, "JxlEncoderProcessOutput failed\n");
-		return false;
-	}
 
-	return true;
+	return S_OK;
 }
 
-/**
- * Writes bytes to file.
- */
-bool WriteFile(const std::vector<uint8_t>& bytes, const char* filename) {
-	FILE* file;
-	fopen_s(&file, filename, "wb");
-	if (!file) {
-		fprintf(stderr, "Could not open %s for writing\n", filename);
-		return false;
-	}
-	if (fwrite(bytes.data(), sizeof(uint8_t), bytes.size(), file) !=
-		bytes.size()) {
-		fprintf(stderr, "Could not write bytes to %s\n", filename);
-		fclose(file);
-		return false;
-	}
-	if (fclose(file) != 0) {
-		fprintf(stderr, "Could not close %s\n", filename);
-		return false;
-	}
-	return true;
+static void MagpieExtEntryCpp(MagpieHostApi* hostApi) {
+	HostApi = hostApi;
+
+	Logger::Get().Initialize(hostApi);
+
+	MagpieImageEncoderDesc imageEncoderDesc = {
+		.id = "jxl",
+		.displayName = "JXL",
+		.description = "JXL 是新一代图像格式",
+		.fileExtension = "jxl",
+		.encode = &EncodeJxl
+	};
+
+	MagpieExtensionDesc extDesc = {
+		.displayName = "JXL Image Encoder",
+		.author = "Blinue",
+		.homePageUrl = "https://github.com/Blinue/Magpie-Ext-JXL",
+		.description = "JXL 图像编码器",
+		.imageEncoderDescs = &imageEncoderDesc,
+		.imageEncoderCount = 1
+	};
+
+	hostApi->registerExtension(&extDesc);
 }
 
-int APIENTRY wWinMain(
-	_In_ HINSTANCE /*hInstance*/,
-	_In_opt_ HINSTANCE /*hPrevInstance*/,
-	_In_ wchar_t* /*lpCmdLine*/,
-	_In_ int /*nCmdShow*/
-) {
-	CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
-
-	uint32_t width, height;
-	std::vector<uint8_t> pixels;
-	LoadFromFile(L"", width, height, pixels);
-		
-	std::vector<uint8_t> compressed;
-	if (!EncodeJxlOneshot(pixels, width, height, &compressed)) {
-		fprintf(stderr, "Couldn't encode jxl\n");
-		return 3;
-	}
-
-	if (!WriteFile(compressed, "test.jxl")) {
-		fprintf(stderr, "Couldn't write jxl file\n");
-		return 4;
-	}
-
-
+extern "C" __declspec(dllexport) void MAGPIE_EXT_ENTRY(MagpieHostApi* hostApi) {
+	MagpieExtEntryCpp(hostApi);
 }

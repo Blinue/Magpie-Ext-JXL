@@ -122,6 +122,7 @@ ConanFile = conanFiles.ToArray();
       <_AdditionalOptions Condition="!$(UseClangCL)">-c:h tools.build:cxxflags=[$(_MSVCAdditionalFlags)] -c:h tools.build:cflags=[$(_MSVCAdditionalFlags)]</_AdditionalOptions>
       <!-- 传入 MSBuild 版本使得 VS 更新后触发重新编译。MSBuild 的更新频率比编译器慢，但够用了 -->
       <_AdditionalOptions>-c user.magpie:msbuild_version=$(MSBuildVersion) $(_AdditionalOptions)</_AdditionalOptions>
+      <!-- Little CMS 不支持 clang-cl 编译 -->
       <_AdditionalOptions Condition="$(UseClangCL)">-c:h lcms/*:tools.build:cxxflags=['/GR-'] -c:h lcms/*:tools.build:cflags=['/GR-'] -s:h lcms/*:compiler.runtime_type=$(Configuration) $(_AdditionalOptions)</_AdditionalOptions>
     </PropertyGroup>
     <!-- 批量处理 _ConanFile 中的元素 -->

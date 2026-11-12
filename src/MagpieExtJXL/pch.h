@@ -13,9 +13,21 @@
 
 // C++
 #include <cstdlib>
+#include <cassert>
 #include <string>
 #include <string_view>
+#include <array>
 #include <vector>
+#include <span>
+
+// WIL
+#include <wil/resource.h>
+#define WIL_ENABLE_EXCEPTIONS
+#include <wil/stl.h>
+#undef WIL_ENABLE_EXCEPTIONS
+
+// fmt
+#include <fmt/format.h>
 
 using namespace std::string_literals;
 using namespace std::string_view_literals;
