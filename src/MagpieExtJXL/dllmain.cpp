@@ -29,7 +29,7 @@ static bool WriteFile(HANDLE hFile, std::span<const uint8_t> data) noexcept {
 	return true;
 }
 
-HRESULT EncodeJxl(
+static HRESULT EncodeJxl(
 	const MagpieOptionValue* /*optionValues*/,
 	uint32_t /*optionValueCount*/,
 	const char* fileName,
@@ -37,7 +37,8 @@ HRESULT EncodeJxl(
 	uint32_t imageHeight,
 	const uint8_t* pixelData,
 	uint64_t pixelDataSize,
-	uint32_t rowPitch
+	uint32_t rowPitch,
+	MagpieColorKind colorKind
 ) noexcept {
 	JxlEncoderPtr encoder = JxlEncoderMake(nullptr);
 	JxlThreadParallelRunnerPtr runner = JxlThreadParallelRunnerMake(
@@ -56,6 +57,7 @@ HRESULT EncodeJxl(
 	basicInfo.ysize = imageHeight;
 	basicInfo.bits_per_sample = 16;
 	basicInfo.uses_original_profile = JXL_TRUE;
+
 	status = JxlEncoderSetBasicInfo(encoder.get(), &basicInfo);
 	if (status != JXL_ENC_SUCCESS) {
 		Logger::Get().Error("JxlEncoderSetBasicInfo 失败");
@@ -63,8 +65,22 @@ HRESULT EncodeJxl(
 	}
 
 	JxlColorEncoding colorEncoding = {};
-	JxlColorEncodingSetToSRGB(&colorEncoding, false);
 
+	if (colorKind == MagpieColorKindSDR) {
+		JxlColorEncodingSetToSRGB(&colorEncoding, JXL_FALSE);
+	} else {
+		colorEncoding.color_space = JXL_COLOR_SPACE_RGB;
+		colorEncoding.white_point = JXL_WHITE_POINT_D65;
+		colorEncoding.primaries = JXL_PRIMARIES_2100;
+
+		if (colorKind == MagpieColorKindWCG) {
+			colorEncoding.transfer_function = JXL_TRANSFER_FUNCTION_GAMMA;
+			colorEncoding.gamma = 1.0 / 2.4;
+		} else {
+			colorEncoding.transfer_function = JXL_TRANSFER_FUNCTION_PQ;
+		}
+	}
+	
 	status = JxlEncoderSetColorEncoding(encoder.get(), &colorEncoding);
 	if (status != JXL_ENC_SUCCESS) {
 		Logger::Get().Error("JxlEncoderSetColorEncoding 失败");
@@ -140,7 +156,7 @@ HRESULT EncodeJxl(
 	return S_OK;
 }
 
-static void MagpieExtEntryCpp(MagpieHostApi* hostApi) {
+static void MagpieExtEntryImpl(MagpieHostApi* hostApi) {
 	HostApi = hostApi;
 
 	Logger::Get().Initialize(hostApi);
@@ -166,5 +182,5 @@ static void MagpieExtEntryCpp(MagpieHostApi* hostApi) {
 }
 
 extern "C" __declspec(dllexport) void MAGPIE_EXT_ENTRY(MagpieHostApi* hostApi) {
-	MagpieExtEntryCpp(hostApi);
+	MagpieExtEntryImpl(hostApi);
 }

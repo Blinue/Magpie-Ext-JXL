@@ -18,6 +18,12 @@ struct MagpieLogSourceLocation {
 	const char* funcName;
 };
 
+enum MagpieColorKind {
+	MagpieColorKindSDR,
+	MagpieColorKindWCG,
+	MagpieColorKindHDR
+};
+
 enum MagpieOptionType {
 	MagpieOptionTypeBool,
 	MagpieOptionTypeInt,
@@ -93,7 +99,8 @@ struct MagpieImageEncoderDesc {
 		uint32_t imageHeight,
 		const uint8_t* pixelData,
 		uint64_t pixelDataSize,
-		uint32_t rowPitch
+		uint32_t rowPitch,
+		MagpieColorKind colorKind
 	);
 };
 
