@@ -110,7 +110,7 @@ static HRESULT EncodeJxl(
 
 	float imageQuality = IMAGE_QUALITY_DEFAULT_VALUE;
 	for (uint32_t i = 0; i < optionValueCount; ++i) {
-		if (optionValues[i].id == IMAGE_QUALITY_OPTION_ID) {
+		if (std::string_view(optionValues[i].id) == IMAGE_QUALITY_OPTION_ID) {
 			imageQuality = optionValues[i].floatValue;
 			break;
 		}
