@@ -6,6 +6,7 @@
     <ProjectGuid>{4fa6c9e1-6ee8-4ec7-83f4-3c65e91556df}</ProjectGuid>
     <RootNamespace>MagpieExtJXL</RootNamespace>
     <OutDir>$(OutBaseDir)</OutDir>
+    <TargetName>blinue-jxl</TargetName>
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
   <PropertyGroup Label="Configuration">

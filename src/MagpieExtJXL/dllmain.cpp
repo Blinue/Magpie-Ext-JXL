@@ -12,8 +12,11 @@
 
 using namespace MagpieExtJXL;
 
-static const char* IMAGE_QUALITY_OPTION_ID = "imageQuality";
-static constexpr float IMAGE_QUALITY_DEFAULT_VALUE = 1.0f;
+static wil::zstring_view IMAGE_QUALITY_OPTION_ID("imageQuality");
+static constexpr float IMAGE_QUALITY_DEFAULT_VALUE = 0.8f;
+
+static wil::zstring_view EFFORT_OPTION_ID("effort");
+static constexpr int EFFORT_DEFAULT_VALUE = 7;
 
 template <typename T>
 constexpr inline T FLOAT_EPSILON = std::numeric_limits<T>::epsilon() * 100;
@@ -23,6 +26,12 @@ template <typename T>
 static bool IsApprox(T l, T r) noexcept {
 	static_assert(std::is_floating_point_v<T>, "T 必须是浮点数类型");
 	return std::abs(l - r) < FLOAT_EPSILON<T>;
+}
+
+static void LogEncoderVersion() noexcept {
+	uint32_t version = JxlEncoderVersion();
+	Logger::Get().Info(fmt::format("libjxl 版本: {}.{}.{}",
+		version / 1000000, (version % 1000000) / 1000, version % 1000));
 }
 
 static bool WriteFile(HANDLE hFile, std::span<const uint8_t> data) noexcept {
@@ -51,6 +60,20 @@ static HRESULT EncodeJxl(
 	uint32_t rowPitch,
 	MagpieColorKind colorKind
 ) noexcept {
+	float imageQuality = IMAGE_QUALITY_DEFAULT_VALUE;
+	int effort = EFFORT_DEFAULT_VALUE;
+	for (uint32_t i = 0; i < optionValueCount; ++i) {
+		std::string_view optionId(optionValues[i].id);
+
+		if (optionId == IMAGE_QUALITY_OPTION_ID) {
+			imageQuality = optionValues[i].floatValue;
+		} else if (optionId == EFFORT_OPTION_ID) {
+			effort = optionValues[i].intValue;
+		}
+	}
+
+	bool isLossless = IsApprox(imageQuality, 1.0f);
+
 	JxlEncoderPtr encoder = JxlEncoderMake(nullptr);
 	JxlThreadParallelRunnerPtr runner = JxlThreadParallelRunnerMake(
 		nullptr, JxlThreadParallelRunnerDefaultNumWorkerThreads());
@@ -67,8 +90,13 @@ static HRESULT EncodeJxl(
 	basicInfo.xsize = imageWidth;
 	basicInfo.ysize = imageHeight;
 	basicInfo.bits_per_sample = 16;
-	basicInfo.uses_original_profile = JXL_TRUE;
 
+	// 无损压缩下 uses_original_profile 必须设为 true；有损压缩下一般设为 false，否则会
+	// 有块状伪影，见 https://github.com/darktable-org/darktable/issues/19995
+	if (isLossless) {
+		basicInfo.uses_original_profile = JXL_TRUE;
+	}
+	
 	status = JxlEncoderSetBasicInfo(encoder.get(), &basicInfo);
 	if (status != JXL_ENC_SUCCESS) {
 		Logger::Get().Error("JxlEncoderSetBasicInfo 失败");
@@ -108,15 +136,7 @@ static HRESULT EncodeJxl(
 		return E_FAIL;
 	}
 
-	float imageQuality = IMAGE_QUALITY_DEFAULT_VALUE;
-	for (uint32_t i = 0; i < optionValueCount; ++i) {
-		if (std::string_view(optionValues[i].id) == IMAGE_QUALITY_OPTION_ID) {
-			imageQuality = optionValues[i].floatValue;
-			break;
-		}
-	}
-
-	if (IsApprox(imageQuality, 1.0f)) {
+	if (isLossless) {
 		// 无损压缩
 		status = JxlEncoderSetFrameLossless(frameSettings, JXL_TRUE);
 		if (status != JXL_ENC_SUCCESS) {
@@ -132,6 +152,12 @@ static HRESULT EncodeJxl(
 			Logger::Get().Error("JxlEncoderSetFrameDistance 失败");
 			return E_FAIL;
 		}
+	}
+
+	status = JxlEncoderFrameSettingsSetOption(frameSettings, JXL_ENC_FRAME_SETTING_EFFORT, effort);
+	if (status != JXL_ENC_SUCCESS) {
+		Logger::Get().Error("JxlEncoderFrameSettingsSetOption 失败");
+		return E_FAIL;
 	}
 	
 	JxlPixelFormat pixelFormat = { 3, JXL_TYPE_UINT16, JXL_NATIVE_ENDIAN, rowPitch };
@@ -193,15 +219,32 @@ static HRESULT EncodeJxl(
 static void MagpieExtEntryImpl(MagpieHostApi* hostApi) {
 	Logger::Get().Initialize(hostApi);
 
-	MagpieImageEncoderOptionDesc imageQualityOptionDesc = {
-		.id = IMAGE_QUALITY_OPTION_ID,
-		.displayName = "Image Quality",
-		.type = MagpieOptionTypeFloat,
-		.floatOption = {
-			.defaultValue = IMAGE_QUALITY_DEFAULT_VALUE,
-			.minValue = 0.0f,
-			.maxValue = 1.0f,
-			.step = 0.01f
+	LogEncoderVersion();
+
+	MagpieImageEncoderOptionDesc optionDescs[] = {
+		{
+			.id = IMAGE_QUALITY_OPTION_ID.c_str(),
+			.displayName = "Image Quality",
+			.description = "值越大图像质量越高，1.0 为无损压缩",
+			.type = MagpieOptionTypeFloat,
+			.floatOption = {
+				.defaultValue = IMAGE_QUALITY_DEFAULT_VALUE,
+				.minValue = 0.0f,
+				.maxValue = 1.0f,
+				.step = 0.01f
+			}
+		},
+		{
+			.id = EFFORT_OPTION_ID.c_str(),
+			.displayName = "Effort",
+			.description = "更大的值可以提高压缩率，但会减慢编码速度",
+			.type = MagpieOptionTypeInt,
+			.intOption = {
+				.defaultValue = EFFORT_DEFAULT_VALUE,
+				.minValue = 1,
+				.maxValue = 10,
+				.step = 1
+			}
 		}
 	};
 
@@ -210,8 +253,8 @@ static void MagpieExtEntryImpl(MagpieHostApi* hostApi) {
 		.displayName = "JXL",
 		.description = "JXL 是新一代图像格式",
 		.fileExtension = "jxl",
-		.optionDescs = &imageQualityOptionDesc,
-		.optionCount = 1,
+		.optionDescs = optionDescs,
+		.optionCount = (uint32_t)std::size(optionDescs),
 		.encode = &EncodeJxl
 	};
 
