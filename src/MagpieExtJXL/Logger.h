@@ -8,7 +8,7 @@ namespace MagpieExtJXL {
 // 因此创建自己的 SourceLocation。
 struct SourceLocation {
 	[[nodiscard]] static consteval SourceLocation Current(
-		int line = __builtin_LINE(),
+		std::uint_least32_t line = __builtin_LINE(),
 		const char* file = __builtin_FILE(),
 		const char* function = __builtin_FUNCTION()
 	) noexcept {
@@ -18,25 +18,25 @@ struct SourceLocation {
 	[[nodiscard]] constexpr SourceLocation() noexcept = default;
 
 	[[nodiscard]] constexpr SourceLocation(
-		int line,
+		std::uint_least32_t line,
 		const char* file,
 		const char* function
 	) noexcept : _line(line), _file(file), _function(function) {}
 
-	[[nodiscard]] constexpr int Line() const noexcept {
+	[[nodiscard]] constexpr std::uint_least32_t GetLine() const noexcept {
 		return _line;
 	}
 
-	[[nodiscard]] constexpr const char* FileName() const noexcept {
+	[[nodiscard]] constexpr const char* GetFileName() const noexcept {
 		return _file;
 	}
 
-	constexpr const char* FunctionName() const noexcept {
+	constexpr const char* GetFunctionName() const noexcept {
 		return _function;
 	}
 
 private:
-	const int _line = 0;
+	const std::uint_least32_t _line = 0;
 	const char* _file = nullptr;
 	const char* _function = nullptr;
 };
@@ -49,36 +49,17 @@ public:
 		_hostLog = hostApi->log;
 	}
 
-	void Info(wil::zstring_view msg, const SourceLocation& location = SourceLocation::Current()) noexcept {
-		_Log(MagpieLogLevelInfo, msg, location);
-	}
+	void Info(wil::zstring_view msg, const SourceLocation& location = SourceLocation::Current()) noexcept;
+	void Win32Info(wil::zstring_view msg, const SourceLocation& location = SourceLocation::Current()) noexcept;
 
-	void Win32Info(wil::zstring_view msg, const SourceLocation& location = SourceLocation::Current()) noexcept {
-		_Log(MagpieLogLevelInfo, _MakeWin32ErrorMsg(msg), location);
-	}
+	void Warn(wil::zstring_view msg, const SourceLocation& location = SourceLocation::Current()) noexcept;
+	void Win32Warn(wil::zstring_view msg, const SourceLocation& location = SourceLocation::Current()) noexcept;
 
-	void Warn(wil::zstring_view msg, const SourceLocation& location = SourceLocation::Current()) noexcept {
-		_Log(MagpieLogLevelWarn, msg, location);
-	}
-
-	void Win32Warn(wil::zstring_view msg, const SourceLocation& location = SourceLocation::Current()) noexcept {
-		_Log(MagpieLogLevelWarn, _MakeWin32ErrorMsg(msg), location);
-	}
-
-	void Error(wil::zstring_view msg, const SourceLocation& location = SourceLocation::Current()) noexcept {
-		_Log(MagpieLogLevelError, msg, location);
-	}
-
-	void Win32Error(wil::zstring_view msg, const SourceLocation& location = SourceLocation::Current()) noexcept {
-		_Log(MagpieLogLevelError, _MakeWin32ErrorMsg(msg), location);
-	}
+	void Error(wil::zstring_view msg, const SourceLocation& location = SourceLocation::Current()) noexcept;
+	void Win32Error(wil::zstring_view msg, const SourceLocation& location = SourceLocation::Current()) noexcept;
 
 private:
 	Logger() = default;
-
-	static std::string _MakeWin32ErrorMsg(std::string_view msg) noexcept {
-		return fmt::format("{}\n\tLastErrorCode: {}", msg, GetLastError());
-	}
 
 	void _Log(MagpieLogLevel logLevel, wil::zstring_view msg, const SourceLocation& location) noexcept;
 
