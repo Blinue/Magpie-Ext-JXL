@@ -8,7 +8,7 @@ namespace MagpieExtJXL {
 // 因此创建自己的 SourceLocation。
 struct SourceLocation {
 	[[nodiscard]] static consteval SourceLocation Current(
-		std::uint_least32_t line = __builtin_LINE(),
+		int line = __builtin_LINE(),
 		const char* file = __builtin_FILE(),
 		const char* function = __builtin_FUNCTION()
 	) noexcept {
@@ -18,12 +18,12 @@ struct SourceLocation {
 	[[nodiscard]] constexpr SourceLocation() noexcept = default;
 
 	[[nodiscard]] constexpr SourceLocation(
-		std::uint_least32_t line,
+		int line,
 		const char* file,
 		const char* function
 	) noexcept : _line(line), _file(file), _function(function) {}
 
-	[[nodiscard]] constexpr std::uint_least32_t GetLine() const noexcept {
+	[[nodiscard]] constexpr int GetLine() const noexcept {
 		return _line;
 	}
 
@@ -36,7 +36,7 @@ struct SourceLocation {
 	}
 
 private:
-	const std::uint_least32_t _line = 0;
+	const int _line = 0;
 	const char* _file = nullptr;
 	const char* _function = nullptr;
 };
@@ -45,8 +45,9 @@ class Logger : public Singleton<Logger> {
 	friend Singleton<Logger>;
 
 public:
-	void Initialize(MagpieHostApi* hostApi) noexcept {
+	void Initialize(MagpieHostApi* hostApi, MagpieExtContext context) noexcept {
 		_hostLog = hostApi->log;
+		_context = context;
 	}
 
 	void Info(wil::zstring_view msg, const SourceLocation& location = SourceLocation::Current()) noexcept;
@@ -63,7 +64,13 @@ private:
 
 	void _Log(MagpieLogLevel logLevel, wil::zstring_view msg, const SourceLocation& location) noexcept;
 
-	HRESULT (*_hostLog)(MagpieLogSourceLocation sourceLocation, MagpieLogLevel level, const char* message) = nullptr;
+	HRESULT (*_hostLog)(
+		MagpieExtContext context,
+		MagpieLogSourceLocation sourceLocation,
+		MagpieLogLevel level,
+		const char* message
+	) = nullptr;
+	MagpieExtContext _context{};
 };
 
 }

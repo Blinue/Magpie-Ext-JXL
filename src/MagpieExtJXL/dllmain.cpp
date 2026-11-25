@@ -89,6 +89,7 @@ static HRESULT EncodeJxl(
 	JxlEncoderInitBasicInfo(&basicInfo);
 	basicInfo.xsize = imageWidth;
 	basicInfo.ysize = imageHeight;
+	// 输入格式是 R16G16B16_UINT16
 	basicInfo.bits_per_sample = 16;
 
 	// 无损压缩下 uses_original_profile 必须设为 true；有损压缩下一般设为 false，否则会
@@ -216,15 +217,15 @@ static HRESULT EncodeJxl(
 	return S_OK;
 }
 
-static void MagpieExtEntryImpl(MagpieHostApi* hostApi) {
-	Logger::Get().Initialize(hostApi);
+static void MagpieExtEntryImpl(MagpieHostApi* hostApi, MagpieExtContext context) {
+	Logger::Get().Initialize(hostApi, context);
 
 	LogEncoderVersion();
 
 	MagpieImageEncoderOptionDesc optionDescs[] = {
 		{
 			.id = IMAGE_QUALITY_OPTION_ID.c_str(),
-			.displayName = "Image Quality",
+			.name = "Image Quality",
 			.description = "值越大图像质量越高，1.0 为无损压缩",
 			.type = MagpieOptionTypeFloat,
 			.floatOption = {
@@ -236,7 +237,7 @@ static void MagpieExtEntryImpl(MagpieHostApi* hostApi) {
 		},
 		{
 			.id = EFFORT_OPTION_ID.c_str(),
-			.displayName = "Effort",
+			.name = "Effort",
 			.description = "更大的值可以提高压缩率，但会减慢编码速度",
 			.type = MagpieOptionTypeInt,
 			.intOption = {
@@ -250,26 +251,25 @@ static void MagpieExtEntryImpl(MagpieHostApi* hostApi) {
 
 	MagpieImageEncoderDesc imageEncoderDesc = {
 		.id = "jxl",
-		.displayName = "JXL",
-		.description = "JXL 是新一代图像格式",
+		.name = "JXL",
 		.fileExtension = "jxl",
+		.description = "JXL 是新一代图像格式",
 		.optionDescs = optionDescs,
 		.optionCount = (uint32_t)std::size(optionDescs),
 		.encode = &EncodeJxl
 	};
 
 	MagpieExtensionDesc extDesc = {
-		.displayName = "JXL Image Encoder",
-		.author = "Blinue",
-		.homePageUrl = "https://github.com/Blinue/Magpie-Ext-JXL",
-		.description = "JXL 图像编码器",
 		.imageEncoderDescs = &imageEncoderDesc,
 		.imageEncoderCount = 1
 	};
 
-	hostApi->registerExtension(&extDesc);
+	hostApi->registerExtension(context, &extDesc);
 }
 
-extern "C" __declspec(dllexport) void MAGPIE_EXT_ENTRY(MagpieHostApi* hostApi) {
-	MagpieExtEntryImpl(hostApi);
+extern "C" __declspec(dllexport) void MAGPIE_EXT_ENTRY(
+	MagpieHostApi* hostApi,
+	MagpieExtContext context
+) {
+	MagpieExtEntryImpl(hostApi, context);
 }

@@ -7,6 +7,7 @@ void Logger::_Log(MagpieLogLevel logLevel, wil::zstring_view msg, const SourceLo
 	assert(!msg.empty());
 
 	_hostLog(
+		_context,
 		MagpieLogSourceLocation{ location.GetFileName(), (int)location.GetLine(), location.GetFunctionName() },
 		logLevel,
 		msg.c_str()
